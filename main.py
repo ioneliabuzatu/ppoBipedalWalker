@@ -145,7 +145,7 @@ def compute_log_policy_prob(memories, nn_policy, device):
     logstd = log_std.type(torch.DoubleTensor)
 
     actions_critic = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
-    actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
+    # actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
 
     return log_policy_prob(n_mean, logstd, actions_critic.to(n_mean.device)) # , actions_expert=actions_expert)
 
@@ -160,7 +160,7 @@ def clipped_PPO_loss(memories, nn_policy, nn_value, old_log_policy, adv, epsilon
     rewards = torch.tensor(np.array([m.reward for m in memories], dtype=np.float32)).to(device)
     value = nn_value(torch.tensor(np.array([m.obs for m in memories], dtype=np.float32)).to(device))
     # Value loss
-    # vl_loss = F.mse_loss(value.squeeze(-1), rewards)
+    vl_loss = F.mse_loss(value.squeeze(-1), rewards)
 
     actions_critic = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
     actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
@@ -169,14 +169,14 @@ def clipped_PPO_loss(memories, nn_policy, nn_value, old_log_policy, adv, epsilon
     new_log_policy = compute_log_policy_prob(memories, nn_policy, device)
     rt_theta = torch.exp(new_log_policy - old_log_policy.detach()).cuda()
     # rt_theta = torch.exp(new_log_policy - old_log_policy.detach()).cuda()  + expert_loss
-    vl_loss = expert_loss
+    # vl_loss = expert_loss
 
     adv = adv.unsqueeze(-1)  # add a dimension because rt_theta has shape: [batch_size, n_actions]
     pg_loss = -torch.mean(torch.min(rt_theta.to(device) * adv, torch.clamp(rt_theta.to(device), 1 - epsilon,
                                                                            1 + epsilon) *
                                     adv))
 
-    return pg_loss, vl_loss
+    return pg_loss, vl_loss, expert_loss
 
 
 class Agent(object):
@@ -190,6 +190,7 @@ class Agent(object):
 
         self.optimizer_policy = optim.Adam(self.model.agent_policy.parameters(), lr=config.POLICY_LR)
         self.optimizer_value = optim.Adam(self.model.agent_value.parameters(), lr=config.VALUE_LR)
+        # self.optimizer = optim.Adam(self.model.parameters(), lr=0.0004)
 
         self.resume_checkpoint("./ckpts/best-checkpoint.pth")
 
@@ -240,18 +241,20 @@ class Agent(object):
                 minib_old_log_policy = old_log_policy[mb:mb + config.BATCH_SIZE]
                 minib_adv = batch_adv[mb:mb + config.BATCH_SIZE]
 
-                pol_loss, val_loss = clipped_PPO_loss(mini_batch, self.model.agent_policy, self.model.agent_value,
+                pol_loss, val_loss, expert_loss = clipped_PPO_loss(mini_batch, self.model.agent_policy,
+                                                             self.model.agent_value,
                                                       minib_old_log_policy,
                                                       minib_adv, config.CLIP_EPS, device)
 
-                # expert_loss = nn.MSELoss()(decide(state_t.detach().cpu().numpy).cuda(), action_t)
                 self.optimizer_policy.zero_grad()
-                pol_loss.backward()
+                (pol_loss+expert_loss).backward()
                 self.optimizer_policy.step()
 
                 self.optimizer_value.zero_grad()
                 val_loss.backward()
                 self.optimizer_value.step()
+
+
 
                 pol_loss_acc.append(float(pol_loss))
                 val_loss_acc.append(float(val_loss))
