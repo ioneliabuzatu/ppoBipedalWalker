@@ -5,7 +5,6 @@ import os
 from utils import Logger
 from torch.distributions import Normal
 import gym
-from tensorboardX import SummaryWriter
 from utils import decide
 
 import datetime
@@ -160,16 +159,16 @@ def clipped_PPO_loss(memories, nn_policy, nn_value, old_log_policy, adv, epsilon
     rewards = torch.tensor(np.array([m.reward for m in memories], dtype=np.float32)).to(device)
     value = nn_value(torch.tensor(np.array([m.obs for m in memories], dtype=np.float32)).to(device))
     # Value loss
-    # vl_loss = F.mse_loss(value.squeeze(-1), rewards)
+    vl_loss = F.mse_loss(value.squeeze(-1), rewards)
 
-    actions_critic = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
-    actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
-    expert_loss = Variable(nn.MSELoss()(actions_expert.to(actions_critic.device), value), requires_grad=True)
+    # actions_critic = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
+    # actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
+    # expert_loss = Variable(nn.MSELoss()(actions_expert.to(actions_critic.device), value), requires_grad=True)
 
     new_log_policy = compute_log_policy_prob(memories, nn_policy, device)
     rt_theta = torch.exp(new_log_policy - old_log_policy.detach()).cuda()
     # rt_theta = torch.exp(new_log_policy - old_log_policy.detach()).cuda()  + expert_loss
-    vl_loss = expert_loss
+    # vl_loss = expert_loss
 
     adv = adv.unsqueeze(-1)  # add a dimension because rt_theta has shape: [batch_size, n_actions]
     pg_loss = -torch.mean(torch.min(rt_theta.to(device) * adv, torch.clamp(rt_theta.to(device), 1 - epsilon,
