@@ -1,0 +1,5 @@
+seaborn
+box2d-py
+gym
+onnx
+tqdm

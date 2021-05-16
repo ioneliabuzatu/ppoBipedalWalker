@@ -127,3 +127,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+wandb
+video
+runs
+submission*
+ckpts
+VIDEOS
+content
+old-scripts
