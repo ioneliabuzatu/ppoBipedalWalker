@@ -131,7 +131,7 @@ wandb
 video
 runs
 submission*
-ckpts
+ckpts/best-checkpoint.pth
 VIDEOS
 content
 old-scripts

@@ -16,12 +16,14 @@ GAMMA = 0.99
 
 ## Test Hyperparameters
 test_episodes = 50
-best_test_result = -1e5
-save_video_test = True
+save_video_test = False
 N_ITER_TEST = 100
 
 POLICY_LR = 0.0004
 VALUE_LR = 0.001
+
+
+amsgrad = False
 
 experiment_buddy.register(locals())
 tensorboard = experiment_buddy.deploy(

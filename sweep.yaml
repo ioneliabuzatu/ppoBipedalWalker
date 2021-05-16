@@ -1,0 +1,27 @@
+program: main_sweep.py
+method: random
+metric:
+  goal: maximize
+  name: reward_per_game
+parameters:
+  batch_size:
+    values: [64, 128, 256, 512]
+  CLIP_GRADIENT:
+    min: 0.05
+    max: 0.5
+  TRAJECTORY_SIZE:
+    values: [2049, 3049, 4049]
+  POLICY_LR:
+    min: 0.00001
+    max: 0.1
+  VALUE_LR:
+    min: 0.0001
+    max: 0.1
+  amsgrad:
+    values: [False, True]
+  GAMMA:
+    min: 0.9
+    max: 0.99
+  GAE_LAMDA:
+    min: 0.9
+    max: 0.95

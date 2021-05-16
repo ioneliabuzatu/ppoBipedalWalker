@@ -188,8 +188,8 @@ class Agent(object):
 
         self.model = ACNet(state_size, action_size, device)
 
-        self.optimizer_policy = optim.Adam(self.model.agent_policy.parameters(), lr=config.POLICY_LR)
-        self.optimizer_value = optim.Adam(self.model.agent_value.parameters(), lr=config.VALUE_LR)
+        self.optimizer_policy = optim.Adam(self.model.agent_policy.parameters(), lr=config.POLICY_LR, amsgrad=config.amsgrad)
+        self.optimizer_value = optim.Adam(self.model.agent_value.parameters(), lr=config.VALUE_LR, amsgrad=config.amsgrad)
 
         self.resume_checkpoint("./ckpts/best-checkpoint.pth")
 
