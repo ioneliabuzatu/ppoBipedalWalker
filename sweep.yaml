@@ -17,8 +17,6 @@ parameters:
   VALUE_LR:
     min: 0.0001
     max: 0.1
-  amsgrad:
-    values: [False, True]
   GAMMA:
     min: 0.9
     max: 0.99
