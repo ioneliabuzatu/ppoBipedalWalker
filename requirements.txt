@@ -6,3 +6,4 @@ tqdm
 numpy
 wandb
 git+https://github.com/ministry-of-silly-code/experiment_buddy#egg=experiment_buddy
+onnx

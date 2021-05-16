@@ -181,7 +181,7 @@ def clipped_PPO_loss(memories, nn_policy, nn_value, old_log_policy, adv, epsilon
 class Agent(object):
     def __init__(self, logger, state_size, action_size, device):
         self.best_reward_so_far = -1e6
-        self.checkpoint_dir = "./ckpts"
+        self.checkpoint_dir = "/home/mila/g/golemofl/"
         self.state_size = state_size
         self.device = device
 
@@ -190,7 +190,7 @@ class Agent(object):
         self.optimizer_policy = optim.Adam(self.model.agent_policy.parameters(), lr=config.POLICY_LR, amsgrad=config.amsgrad)
         self.optimizer_value = optim.Adam(self.model.agent_value.parameters(), lr=config.VALUE_LR, amsgrad=config.amsgrad)
 
-        self.resume_checkpoint("./ckpts/best-checkpoint.pth")
+        self.resume_checkpoint("/home/mila/g/golemofl//best-checkpoint.pth")
 
     def save_checkpoint(self, epoch, info='', test_reward=None):
         """Saves a model checkpoint"""
@@ -218,7 +218,7 @@ class Agent(object):
             self.optimizer_policy.load_state_dict(checkpoint['optimizer_policy'])
             self.optimizer_value.load_state_dict(checkpoint['optimizer_value'])
             self.best_reward_so_far = float(checkpoint["test_reward"])
-            print("Checkpoint loaded. Resume training")
+            print(f"Checkpoint loaded. Resume training with reward {self.best_reward_so_far}")
 
     def save_onnx_checkpoint(self, epoch, info=''):
         """Create an ONNX checkpoint"""
