@@ -1,11 +1,8 @@
-import torch
-from utils import init
-from utils import init_normc_
-from torch.distributions import Normal
-import torch.nn as nn
 import numpy as np
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import MultivariateNormal
+from torch.distributions import Normal
 
 
 class ActorNet(nn.Module):
@@ -94,6 +91,7 @@ class A2C_policy(nn.Module):
         super(A2C_policy, self).__init__()
 
         self.n_actions = n_actions[0]
+        self.activation = activation
 
         self.lp = nn.Sequential(
             nn.Linear(input_shape[0], hidden_size),
@@ -104,13 +102,9 @@ class A2C_policy(nn.Module):
         self.mean_l = nn.Linear(hidden_size, n_actions[0])
         self.mean_l.weight.data.mul_(0.1)
 
-        self.var_l = nn.Linear(hidden_size, n_actions[0])
-        self.var_l.weight.data.mul_(0.1)
-
         self.logstd = nn.Parameter(torch.zeros(n_actions[0]))
 
         self.device = list(self.lp.parameters())[0]
-        self.activation = activation
 
     def forward(self, x):
         x = x.to(self.device)

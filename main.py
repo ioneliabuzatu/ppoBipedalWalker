@@ -1,27 +1,22 @@
-import numpy as np
-from torch.autograd import Variable
-from utils import transforms
-import os
-from utils import Logger
-from torch.distributions import Normal
-import gym
-from tensorboardX import SummaryWriter
-from utils import decide
-
 import datetime
-from collections import namedtuple
-from collections import deque
 import math
+import os
+from collections import namedtuple
 
+import gym
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.nn.utils.clip_grad import clip_grad_norm_
-import wandb
-from model import ACNet
+from torch.distributions import Normal
 
 import config
+import wandb
+from model import ACNet
+from utils import Logger
+from utils import decide
+from utils import transforms
 
 wandb.run = config.tensorboard.run
 
@@ -51,13 +46,13 @@ class Env:
         self.gamma = gamma
         self.gae_lambda = gae_lambda
 
-    def steps(self, agent_policy, agent_value):
+    def steps(self, agent_policy, agent_value, n_iter):
         '''
         Execute the agent n_steps in the environment
         '''
         memories = []
         for s in range(self.n_steps):
-            self.n_iter += 1
+            n_iter += 1
 
             ag_mean, log_std = agent_policy(torch.tensor(self.obs))
 
@@ -87,10 +82,10 @@ class Env:
 
             if done:
                 print('#####', self.game_n, 'rew:', int(self.game_rew), int(np.mean(self.last_games_rews[-100:])),
-                      np.round(reward, 2), self.n_iter)
-                wandb.log({"reward_per_game": int(self.game_rew)}, step=self.game_n)
+                      np.round(reward, 2), n_iter)
+                wandb.log({"reward_per_game": int(self.game_rew)}, step=n_iter)
                 wandb.log({"training reward last 100 games": int(np.mean(self.last_games_rews[-100:]))},
-                          step=self.game_n)
+                          step=n_iter)
 
                 self.obs = self.env.reset()
                 self.last_game_rew = self.game_rew
@@ -100,7 +95,7 @@ class Env:
                 self.last_games_rews.append(self.last_game_rew)
 
         # compute the discount reward of the memories and return it
-        return self.generalized_advantage_estimation(memories)
+        return self.generalized_advantage_estimation(memories), n_iter
 
     def generalized_advantage_estimation(self, memories):
         '''
@@ -128,7 +123,7 @@ class Env:
 def log_policy_prob(mean, std, actions_critic, actions_expert=None):
     if actions_expert is not None:
         act_log_softmax = -((mean - (actions_critic - actions_expert) ** 2) ** 2) / (
-                    2 * torch.exp(std).clamp(min=1e-4)) - torch.log(torch.sqrt(2 * math.pi * torch.exp(std)))
+                2 * torch.exp(std).clamp(min=1e-4)) - torch.log(torch.sqrt(2 * math.pi * torch.exp(std)))
     else:
         act_log_softmax = -((mean - actions_critic) ** 2) / (2 * torch.exp(std).clamp(min=1e-4)) - torch.log(
             torch.sqrt(2 * math.pi * torch.exp(std)))
@@ -145,38 +140,26 @@ def compute_log_policy_prob(memories, nn_policy, device):
     logstd = log_std.type(torch.DoubleTensor)
 
     actions_critic = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
-    actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
+    # actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
 
-    return log_policy_prob(n_mean, logstd, actions_critic.to(n_mean.device)) # , actions_expert=actions_expert)
+    return log_policy_prob(n_mean, logstd, actions_critic.to(n_mean.device))  # , actions_expert=actions_expert)
 
 
 def clipped_PPO_loss(memories, nn_policy, nn_value, old_log_policy, adv, epsilon, device):
-    '''
-    Clipped PPO loss as in the paperself.
-    It return the clipped policy loss and the value loss
-    '''
-
-    # state value
     rewards = torch.tensor(np.array([m.reward for m in memories], dtype=np.float32)).to(device)
     value = nn_value(torch.tensor(np.array([m.obs for m in memories], dtype=np.float32)).to(device))
-    # Value loss
-    # vl_loss = F.mse_loss(value.squeeze(-1), rewards)
+    vl_loss = F.mse_loss(value.squeeze(-1), rewards)
 
-    actions_critic = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
-    actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32))  # .to(device))
-    expert_loss = Variable(nn.MSELoss()(actions_expert.to(actions_critic.device), value), requires_grad=True)
-
+    actions_actor = torch.DoubleTensor(np.array([m.action for m in memories])).to(device)
+    actions_expert = decide(np.array([m.obs for m in memories], dtype=np.float32)).to(device)
+    expert_loss = nn.MSELoss()(actions_expert, actions_actor)
     new_log_policy = compute_log_policy_prob(memories, nn_policy, device)
     rt_theta = torch.exp(new_log_policy - old_log_policy.detach()).cuda()
-    # rt_theta = torch.exp(new_log_policy - old_log_policy.detach()).cuda()  + expert_loss
-    vl_loss = expert_loss
 
-    adv = adv.unsqueeze(-1)  # add a dimension because rt_theta has shape: [batch_size, n_actions]
+    adv = adv.unsqueeze(-1)
     pg_loss = -torch.mean(torch.min(rt_theta.to(device) * adv, torch.clamp(rt_theta.to(device), 1 - epsilon,
-                                                                           1 + epsilon) *
-                                    adv))
-
-    return pg_loss, vl_loss
+                                                                           1 + epsilon) * adv))
+    return pg_loss, vl_loss, expert_loss
 
 
 class Agent(object):
@@ -231,7 +214,7 @@ class Agent(object):
                           opset_version=10,
                           export_params=True, do_constant_folding=True)
 
-    def train(self, episode, batch, old_log_policy, batch_adv):
+    def train(self, steps, batch, old_log_policy, batch_adv):
         pol_loss_acc = []
         val_loss_acc = []
         for s in range(config.PPO_EPOCHS):
@@ -240,13 +223,13 @@ class Agent(object):
                 minib_old_log_policy = old_log_policy[mb:mb + config.BATCH_SIZE]
                 minib_adv = batch_adv[mb:mb + config.BATCH_SIZE]
 
-                pol_loss, val_loss = clipped_PPO_loss(mini_batch, self.model.agent_policy, self.model.agent_value,
-                                                      minib_old_log_policy,
-                                                      minib_adv, config.CLIP_EPS, device)
+                pol_loss, val_loss, expert_loss = clipped_PPO_loss(mini_batch, self.model.agent_policy,
+                                                                   self.model.agent_value,
+                                                                   minib_old_log_policy,
+                                                                   minib_adv, config.CLIP_EPS, device)
 
-                # expert_loss = nn.MSELoss()(decide(state_t.detach().cpu().numpy).cuda(), action_t)
                 self.optimizer_policy.zero_grad()
-                pol_loss.backward()
+                (pol_loss + expert_loss).backward()
                 self.optimizer_policy.step()
 
                 self.optimizer_value.zero_grad()
@@ -256,10 +239,11 @@ class Agent(object):
                 pol_loss_acc.append(float(pol_loss))
                 val_loss_acc.append(float(val_loss))
 
-        # wandb.log({'policy_loss': np.array(pol_loss_acc).mean()}, step=episode)
-        # writer.add_scalar('vl_loss', np.mean(val_loss_acc), n_iter)
-        # writer.add_scalar('rew', env.last_game_rew, n_iter)
-        # writer.add_scalar('10rew', np.mean(env.last_games_rews[-100:]), n_iter)
+        wandb.log({'policy_loss': np.array(pol_loss_acc).mean()}, step=steps)
+        wandb.log({'vl_loss': np.array(val_loss_acc).mean()}, step=steps)
+        wandb.log({'rew': env.last_game_rew}, step=steps)
+        wandb.log({'10rew': np.mean(env.last_games_rews[-100:])}, step=steps)
+        wandb.log({"losses_x": steps})
 
     def test_game(self, tst_env, agent_policy, test_episodes):
         '''
@@ -304,9 +288,10 @@ class Runner(object):
         self.best_reward_so_far = self.agent.best_reward_so_far
 
     def run(self):
-        while self.n_iter < config.MAX_ITER:
+        for round in range(config.MAX_ITER):
+            env.game_n = self.n_iter
 
-            batch = env.steps(self.agent.model.agent_policy, self.agent.model.agent_value)
+            batch, self.n_iter = env.steps(self.agent.model.agent_policy, self.agent.model.agent_value, self.n_iter)
             old_log_policy = compute_log_policy_prob(batch, self.agent.model.agent_policy, device)
 
             # Gather the advantage from the memory..
@@ -318,7 +303,7 @@ class Runner(object):
             self.agent.train(self.n_iter, batch, old_log_policy, batch_adv)
 
             # Test the agent
-            if self.n_iter % config.N_ITER_TEST == 0:
+            if round % config.N_ITER_TEST == 0:
                 test_rews, test_stps = self.agent.test_game(test_env, self.agent.model.agent_policy,
                                                             config.test_episodes)
                 print(' > Testing..', self.n_iter, test_rews, test_stps)

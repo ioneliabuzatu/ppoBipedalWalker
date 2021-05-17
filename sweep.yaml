@@ -1,5 +1,4 @@
-program: main_sweep.py
-method: random
+method: bayes
 metric:
   goal: maximize
   name: reward_per_game
@@ -23,3 +22,4 @@ parameters:
   GAE_LAMDA:
     min: 0.9
     max: 0.95
+program: main_sweep.py
